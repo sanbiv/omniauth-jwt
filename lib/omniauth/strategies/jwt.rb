@@ -25,15 +25,16 @@ module OmniAuth
       def decoded
         @decoded ||= begin
           decoded, _header = ::JWT.decode(request.params['jwt'], options.secret, true, algorithm: options.algorithm)
+          (options.required_claims || []).each do |field|
+            raise ClaimInvalid.new("Missing required '#{field}' claim.") if !decoded.key?(field.to_s)
+          end
+          raise ClaimInvalid.new("Missing required 'iat' claim.") if options.valid_within && !decoded["iat"]
+          raise ClaimInvalid.new("'iat' timestamp claim is too skewed from present.") if options.valid_within && (Time.now.to_i - decoded["iat"]).abs > options.valid_within
+          decoded.stringify_keys! if decoded.respond_to? :stringify_keys!
           decoded
         end
-        (options.required_claims || []).each do |field|
-          raise ClaimInvalid.new("Missing required '#{field}' claim.") if !@decoded.key?(field.to_s)
-        end
-        raise ClaimInvalid.new("Missing required 'iat' claim.") if options.valid_within && !@decoded["iat"]
-        raise ClaimInvalid.new("'iat' timestamp claim is too skewed from present.") if options.valid_within && (Time.now.to_i - @decoded["iat"]).abs > options.valid_within
-        @decoded
       end
+      alias raw_info decoded
 
       def callback_phase
         super
@@ -41,15 +42,15 @@ module OmniAuth
         fail! :claim_invalid, e
       end
 
-      uid{ decoded[options.uid_claim] }
+      uid{ raw_info[options.uid_claim] }
 
       extra do
-        {:raw_info => decoded}
+        {:raw_info => raw_info}
       end
 
       info do
         options.info_map.inject({}) do |h,(k,v)|
-          h[k.to_s] = decoded[v.to_s]
+          h[k.to_s] = raw_info[v.to_s]
           h
         end
       end
